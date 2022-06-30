@@ -50,7 +50,7 @@ public class PreparedPacketFactory {
   private final PreparedPacketConstructor constructor;
   private final StateRegistry stateRegistry;
   private boolean enableCompression;
-  private MinecraftCompressorAndLengthEncoder compressionEncoder;
+  private ThreadLocal<MinecraftCompressorAndLengthEncoder> compressionEncoder;
 
   static {
     try {
@@ -81,7 +81,8 @@ public class PreparedPacketFactory {
 
   public void updateCompressor(boolean enableCompression, int compressionLevel, int compressionThreshold) {
     this.enableCompression = enableCompression;
-    this.compressionEncoder = new MinecraftCompressorAndLengthEncoder(compressionThreshold, Natives.compress.get().create(compressionLevel));
+    this.compressionEncoder = ThreadLocal.withInitial(() ->
+        new MinecraftCompressorAndLengthEncoder(compressionThreshold, Natives.compress.get().create(compressionLevel)));
   }
 
   public PreparedPacket createPreparedPacket(ProtocolVersion minVersion, ProtocolVersion maxVersion) {
@@ -98,8 +99,8 @@ public class PreparedPacketFactory {
 
     try {
       if (this.enableCompression) {
-        networkPacket = (ByteBuf) allocateCompressed.invoke(this.compressionEncoder, dummyContext, packetData, false);
-        handleCompressed.invoke(this.compressionEncoder, dummyContext, packetData, networkPacket);
+        networkPacket = (ByteBuf) allocateCompressed.invoke(this.compressionEncoder.get(), dummyContext, packetData, false);
+        handleCompressed.invoke(this.compressionEncoder.get(), dummyContext, packetData, networkPacket);
       } else {
         networkPacket = (ByteBuf) allocateVarint.invoke(MinecraftVarintLengthEncoder.INSTANCE, dummyContext, packetData, false);
         handleVarint.invoke(MinecraftVarintLengthEncoder.INSTANCE, dummyContext, packetData, networkPacket);
