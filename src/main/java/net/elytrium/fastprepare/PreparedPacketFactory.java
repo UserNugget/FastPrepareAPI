@@ -55,7 +55,7 @@ public class PreparedPacketFactory {
   static {
     try {
       handleCompressed = MinecraftCompressorAndLengthEncoder.class
-          .getDeclaredMethod("handleCompressed", ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class);
+          .getDeclaredMethod("encode", ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class);
       handleCompressed.setAccessible(true);
       allocateCompressed = MinecraftCompressorAndLengthEncoder.class
           .getDeclaredMethod("allocateBuffer", ChannelHandlerContext.class, ByteBuf.class, boolean.class);
