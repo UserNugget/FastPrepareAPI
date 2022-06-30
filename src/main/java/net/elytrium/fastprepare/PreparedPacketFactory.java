@@ -49,8 +49,8 @@ public class PreparedPacketFactory {
 
   private final PreparedPacketConstructor constructor;
   private final StateRegistry stateRegistry;
-  private final boolean enableCompression;
-  private final MinecraftCompressorAndLengthEncoder compressionEncoder;
+  private boolean enableCompression;
+  private MinecraftCompressorAndLengthEncoder compressionEncoder;
 
   static {
     try {
@@ -76,6 +76,10 @@ public class PreparedPacketFactory {
                                int compressionLevel, int compressionThreshold) {
     this.constructor = constructor;
     this.stateRegistry = stateRegistry;
+    this.updateCompressor(enableCompression, compressionLevel, compressionThreshold);
+  }
+
+  public void updateCompressor(boolean enableCompression, int compressionLevel, int compressionThreshold) {
     this.enableCompression = enableCompression;
     this.compressionEncoder = new MinecraftCompressorAndLengthEncoder(compressionThreshold, Natives.compress.get().create(compressionLevel));
   }
