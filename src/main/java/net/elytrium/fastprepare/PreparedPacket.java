@@ -21,6 +21,7 @@ import com.google.common.base.Preconditions;
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.proxy.protocol.MinecraftPacket;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -131,11 +132,10 @@ public class PreparedPacket {
       T minecraftPacket = packet.apply(protocolVersion);
       Preconditions.checkArgument(minecraftPacket instanceof MinecraftPacket);
       ByteBuf buf = this.factory.encodeSingle((MinecraftPacket) minecraftPacket, protocolVersion);
-      if (this.packets.containsKey(protocolVersion)) {
-        this.packets.get(protocolVersion).writeBytes(buf);
-      } else {
-        this.packets.put(protocolVersion, buf);
+      if (!this.packets.containsKey(protocolVersion)) {
+        this.packets.put(protocolVersion, Unpooled.directBuffer());
       }
+      this.packets.get(protocolVersion).writeBytes(buf);
     }
 
     return this;

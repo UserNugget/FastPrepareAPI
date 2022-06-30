@@ -18,7 +18,7 @@
 package net.elytrium.fastprepare.dummy;
 
 import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
@@ -224,7 +224,7 @@ public class DummyChannelHandlerContext implements ChannelHandlerContext {
 
   @Override
   public ByteBufAllocator alloc() {
-    return Unpooled.directBuffer().alloc();
+    return UnpooledByteBufAllocator.DEFAULT;
   }
 
   @Override

@@ -101,7 +101,7 @@ public class PreparedPacketFactory {
         networkPacket = (ByteBuf) allocateCompressed.invoke(this.compressionEncoder, dummyContext, packetData, false);
         handleCompressed.invoke(this.compressionEncoder, dummyContext, packetData, networkPacket);
       } else {
-        networkPacket = (ByteBuf) allocateVarint.invoke(this.compressionEncoder, dummyContext, packetData, false);
+        networkPacket = (ByteBuf) allocateVarint.invoke(MinecraftVarintLengthEncoder.INSTANCE, dummyContext, packetData, false);
         handleVarint.invoke(MinecraftVarintLengthEncoder.INSTANCE, dummyContext, packetData, networkPacket);
       }
     } catch (IllegalAccessException | InvocationTargetException e) {
@@ -114,7 +114,7 @@ public class PreparedPacketFactory {
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version) {
-    ByteBuf packetData = Unpooled.buffer();
+    ByteBuf packetData = Unpooled.directBuffer();
     this.encodeId(packet, packetData, version);
 
     return this.compress(packetData);
