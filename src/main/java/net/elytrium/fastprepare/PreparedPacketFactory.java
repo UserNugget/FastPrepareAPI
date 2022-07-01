@@ -94,11 +94,11 @@ public class PreparedPacketFactory {
     packet.encode(out, ProtocolUtils.Direction.CLIENTBOUND, version);
   }
 
-  public ByteBuf compress(ByteBuf packetData) {
+  public ByteBuf compress(ByteBuf packetData, boolean enableCompression) {
     ByteBuf networkPacket;
 
     try {
-      if (this.enableCompression) {
+      if (enableCompression) {
         networkPacket = (ByteBuf) allocateCompressed.invoke(this.compressionEncoder.get(), dummyContext, packetData, false);
         handleCompressed.invoke(this.compressionEncoder.get(), dummyContext, packetData, networkPacket);
       } else {
@@ -118,7 +118,7 @@ public class PreparedPacketFactory {
     ByteBuf packetData = Unpooled.directBuffer();
     this.encodeId(packet, packetData, version);
 
-    return this.compress(packetData);
+    return this.compress(packetData, version.compareTo(ProtocolVersion.MINECRAFT_1_8) >= 0 && this.enableCompression);
   }
 
   public void inject(Player player, MinecraftConnection connection, ChannelPipeline pipeline) {
