@@ -35,6 +35,7 @@ public class PreparedPacket {
   private final ProtocolVersion minVersion;
   private final ProtocolVersion maxVersion;
   private final PreparedPacketFactory factory;
+  private boolean disposed;
 
   public PreparedPacket(ProtocolVersion minVersion, ProtocolVersion maxVersion, PreparedPacketFactory factory) {
     this.minVersion = minVersion;
@@ -155,6 +156,11 @@ public class PreparedPacket {
   }
 
   public void release() {
+    if (this.disposed) {
+      return;
+    }
+
+    this.disposed = true;
     this.packets.forEach((k, v) -> v.release());
   }
 }
