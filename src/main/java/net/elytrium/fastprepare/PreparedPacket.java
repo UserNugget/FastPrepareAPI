@@ -153,4 +153,8 @@ public class PreparedPacket {
     this.packets.replaceAll((k, v) -> v.capacity(v.readableBytes()));
     return this;
   }
+
+  public void release() {
+    this.packets.forEach((k, v) -> v.release());
+  }
 }
