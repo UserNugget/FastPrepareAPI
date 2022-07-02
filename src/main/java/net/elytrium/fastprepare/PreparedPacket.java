@@ -136,7 +136,9 @@ public class PreparedPacket {
       if (!this.packets.containsKey(protocolVersion)) {
         this.packets.put(protocolVersion, Unpooled.directBuffer());
       }
+
       this.packets.get(protocolVersion).writeBytes(buf);
+      buf.release();
     }
 
     return this;
