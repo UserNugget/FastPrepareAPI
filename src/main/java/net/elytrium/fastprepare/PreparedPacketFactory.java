@@ -115,7 +115,7 @@ public class PreparedPacketFactory {
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version) {
-    ByteBuf packetData = Unpooled.directBuffer();
+    ByteBuf packetData = Unpooled.buffer();
     this.encodeId(packet, packetData, version);
 
     return this.compress(packetData, version.compareTo(ProtocolVersion.MINECRAFT_1_8) >= 0 && this.enableCompression);

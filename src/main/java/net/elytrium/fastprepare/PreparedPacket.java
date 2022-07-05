@@ -134,7 +134,7 @@ public class PreparedPacket {
       Preconditions.checkArgument(minecraftPacket instanceof MinecraftPacket);
       ByteBuf buf = this.factory.encodeSingle((MinecraftPacket) minecraftPacket, protocolVersion);
       if (!this.packets.containsKey(protocolVersion)) {
-        this.packets.put(protocolVersion, Unpooled.directBuffer());
+        this.packets.put(protocolVersion, Unpooled.buffer());
       }
 
       this.packets.get(protocolVersion).writeBytes(buf);
