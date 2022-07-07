@@ -42,8 +42,6 @@ public class PreparedPacketEncoder extends MessageToMessageEncoder<PreparedPacke
 
   @Override
   protected void encode(ChannelHandlerContext ctx, PreparedPacket msg, List<Object> out) {
-    if (msg.hasPacketsFor(this.protocolVersion)) {
-      out.add(this.duplicateFunction.apply(msg.getPackets(this.protocolVersion)));
-    }
+    out.add(this.duplicateFunction.apply(msg.getPackets(this.protocolVersion)));
   }
 }

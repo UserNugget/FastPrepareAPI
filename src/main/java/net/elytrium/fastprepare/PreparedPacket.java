@@ -25,13 +25,11 @@ import io.netty.buffer.Unpooled;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 public class PreparedPacket {
 
-  private final Map<ProtocolVersion, ByteBuf> packets = new ConcurrentHashMap<>();
+  private final ByteBuf[] packets = new ByteBuf[ProtocolVersion.values().length];
   private final ProtocolVersion minVersion;
   private final ProtocolVersion maxVersion;
   private final PreparedPacketFactory factory;
@@ -133,11 +131,12 @@ public class PreparedPacket {
       T minecraftPacket = packet.apply(protocolVersion);
       Preconditions.checkArgument(minecraftPacket instanceof MinecraftPacket);
       ByteBuf buf = this.factory.encodeSingle((MinecraftPacket) minecraftPacket, protocolVersion);
-      if (!this.packets.containsKey(protocolVersion)) {
-        this.packets.put(protocolVersion, Unpooled.buffer());
+      int versionKey = protocolVersion.ordinal();
+      if (this.packets[versionKey] == null) {
+        this.packets[versionKey] = Unpooled.buffer();
       }
 
-      this.packets.get(protocolVersion).writeBytes(buf);
+      this.packets[versionKey].writeBytes(buf);
       buf.release();
     }
 
@@ -145,15 +144,18 @@ public class PreparedPacket {
   }
 
   public ByteBuf getPackets(ProtocolVersion version) {
-    return this.packets.get(version);
-  }
-
-  public boolean hasPacketsFor(ProtocolVersion version) {
-    return this.packets.containsKey(version);
+    return this.packets[version.ordinal()];
   }
 
   public PreparedPacket build() {
-    this.packets.replaceAll((k, v) -> v.capacity(v.readableBytes()));
+    ByteBuf[] packets = this.packets;
+    for (int i = 0, packetsLength = packets.length; i < packetsLength; i++) {
+      ByteBuf buf = packets[i];
+      if (buf != null) {
+        packets[i] = buf.capacity(buf.readableBytes());
+      }
+    }
+
     return this;
   }
 
@@ -163,6 +165,10 @@ public class PreparedPacket {
     }
 
     this.disposed = true;
-    this.packets.forEach((k, v) -> v.release());
+    for (ByteBuf packet : this.packets) {
+      if (packet != null) {
+        packet.release();
+      }
+    }
   }
 }
