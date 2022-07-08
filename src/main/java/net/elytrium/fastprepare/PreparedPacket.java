@@ -133,7 +133,7 @@ public class PreparedPacket {
       ByteBuf buf = this.factory.encodeSingle((MinecraftPacket) minecraftPacket, protocolVersion);
       int versionKey = protocolVersion.ordinal();
       if (this.packets[versionKey] == null) {
-        this.packets[versionKey] = Unpooled.buffer();
+        this.packets[versionKey] = Unpooled.directBuffer();
       }
 
       this.packets[versionKey].writeBytes(buf);

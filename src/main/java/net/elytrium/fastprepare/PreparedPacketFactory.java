@@ -19,6 +19,8 @@ package net.elytrium.fastprepare;
 
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.natives.compression.VelocityCompressor;
+import com.velocitypowered.natives.util.BufferPreference;
 import com.velocitypowered.natives.util.Natives;
 import com.velocitypowered.proxy.connection.MinecraftConnection;
 import com.velocitypowered.proxy.network.Connections;
@@ -27,6 +29,7 @@ import com.velocitypowered.proxy.protocol.ProtocolUtils;
 import com.velocitypowered.proxy.protocol.StateRegistry;
 import com.velocitypowered.proxy.protocol.netty.MinecraftCompressorAndLengthEncoder;
 import com.velocitypowered.proxy.protocol.netty.MinecraftVarintLengthEncoder;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
@@ -37,15 +40,17 @@ import net.elytrium.fastprepare.dummy.DummyChannelHandlerContext;
 import net.elytrium.fastprepare.encoder.PreparedPacketEncoder;
 import net.elytrium.fastprepare.encoder.SinglePacketEncoder;
 
+@SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE")
 public class PreparedPacketFactory {
 
   public static final String PREPARED_ENCODER = "prepared-encoder";
   public static final String SINGLE_ENCODER = "single-encoder";
-  private static final ChannelHandlerContext dummyContext = new DummyChannelHandlerContext();
-  private static Method handleCompressed;
-  private static Method allocateCompressed;
-  private static Method handleVarint;
-  private static Method allocateVarint;
+  private static final ChannelHandlerContext DUMMY_CONTEXT = new DummyChannelHandlerContext();
+  private static Method HANDLE_COMPRESSED;
+  private static Method ALLOCATE_COMPRESSED;
+  private static Method HANDLE_VARINT;
+  private static Method ALLOCATE_VARINT;
+  private static boolean DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR;
 
   private final PreparedPacketConstructor constructor;
   private final StateRegistry stateRegistry;
@@ -54,19 +59,25 @@ public class PreparedPacketFactory {
 
   static {
     try {
-      handleCompressed = MinecraftCompressorAndLengthEncoder.class
+      HANDLE_COMPRESSED = MinecraftCompressorAndLengthEncoder.class
           .getDeclaredMethod("encode", ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class);
-      handleCompressed.setAccessible(true);
-      allocateCompressed = MinecraftCompressorAndLengthEncoder.class
+      HANDLE_COMPRESSED.setAccessible(true);
+      ALLOCATE_COMPRESSED = MinecraftCompressorAndLengthEncoder.class
           .getDeclaredMethod("allocateBuffer", ChannelHandlerContext.class, ByteBuf.class, boolean.class);
-      allocateCompressed.setAccessible(true);
+      ALLOCATE_COMPRESSED.setAccessible(true);
 
-      handleVarint = MinecraftVarintLengthEncoder.class
+      HANDLE_VARINT = MinecraftVarintLengthEncoder.class
           .getDeclaredMethod("encode", ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class);
-      handleVarint.setAccessible(true);
-      allocateVarint = MinecraftVarintLengthEncoder.class
+      HANDLE_VARINT.setAccessible(true);
+      ALLOCATE_VARINT = MinecraftVarintLengthEncoder.class
           .getDeclaredMethod("allocateBuffer", ChannelHandlerContext.class, ByteBuf.class, boolean.class);
-      allocateVarint.setAccessible(true);
+      ALLOCATE_VARINT.setAccessible(true);
+
+      try (VelocityCompressor compressor = Natives.compress.get().create(1)) {
+        BufferPreference bufferType = compressor.preferredBufferType();
+        DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR = bufferType.equals(BufferPreference.DIRECT_PREFERRED)
+            || bufferType.equals(BufferPreference.DIRECT_REQUIRED);
+      }
     } catch (NoSuchMethodException e) {
       e.printStackTrace();
     }
@@ -81,6 +92,8 @@ public class PreparedPacketFactory {
 
   public void updateCompressor(boolean enableCompression, int compressionLevel, int compressionThreshold) {
     this.enableCompression = enableCompression;
+
+    // We're creating different compressors for different threads here to allow multithreading
     this.compressionEncoder = ThreadLocal.withInitial(() ->
         new MinecraftCompressorAndLengthEncoder(compressionThreshold, Natives.compress.get().create(compressionLevel)));
   }
@@ -99,11 +112,11 @@ public class PreparedPacketFactory {
 
     try {
       if (enableCompression) {
-        networkPacket = (ByteBuf) allocateCompressed.invoke(this.compressionEncoder.get(), dummyContext, packetData, false);
-        handleCompressed.invoke(this.compressionEncoder.get(), dummyContext, packetData, networkPacket);
+        networkPacket = (ByteBuf) ALLOCATE_COMPRESSED.invoke(this.compressionEncoder.get(), DUMMY_CONTEXT, packetData, false);
+        HANDLE_COMPRESSED.invoke(this.compressionEncoder.get(), DUMMY_CONTEXT, packetData, networkPacket);
       } else {
-        networkPacket = (ByteBuf) allocateVarint.invoke(MinecraftVarintLengthEncoder.INSTANCE, dummyContext, packetData, false);
-        handleVarint.invoke(MinecraftVarintLengthEncoder.INSTANCE, dummyContext, packetData, networkPacket);
+        networkPacket = (ByteBuf) ALLOCATE_VARINT.invoke(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, false);
+        HANDLE_VARINT.invoke(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, networkPacket);
       }
     } catch (IllegalAccessException | InvocationTargetException e) {
       e.printStackTrace();
@@ -115,7 +128,16 @@ public class PreparedPacketFactory {
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version) {
-    ByteBuf packetData = Unpooled.buffer();
+    ByteBuf packetData;
+
+    if (this.enableCompression) {
+      packetData = DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR ? Unpooled.directBuffer() : Unpooled.buffer();
+    } else {
+      // Ignoring Cipher there.
+      // Network I/O always works better with direct buffers
+      packetData = Unpooled.directBuffer();
+    }
+
     this.encodeId(packet, packetData, version);
 
     return this.compress(packetData, version.compareTo(ProtocolVersion.MINECRAFT_1_8) >= 0 && this.enableCompression);
