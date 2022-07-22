@@ -55,7 +55,6 @@ public class PreparedPacketFactory {
   private static Method ALLOCATE_VARINT;
   private static boolean DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR;
 
-  private final Object mutex = new Object();
   private final PreparedPacketConstructor constructor;
   private final StateRegistry stateRegistry;
   private final Map<Thread, MinecraftCompressorAndLengthEncoder> compressionEncoder;
