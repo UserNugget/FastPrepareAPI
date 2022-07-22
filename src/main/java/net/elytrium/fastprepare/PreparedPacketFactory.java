@@ -36,6 +36,9 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import net.elytrium.fastprepare.dummy.DummyChannelHandlerContext;
 import net.elytrium.fastprepare.encoder.PreparedPacketEncoder;
 import net.elytrium.fastprepare.encoder.SinglePacketEncoder;
@@ -52,10 +55,13 @@ public class PreparedPacketFactory {
   private static Method ALLOCATE_VARINT;
   private static boolean DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR;
 
+  private final Object mutex = new Object();
   private final PreparedPacketConstructor constructor;
   private final StateRegistry stateRegistry;
+  private final Map<Thread, MinecraftCompressorAndLengthEncoder> compressionEncoder;
   private boolean enableCompression;
-  private ThreadLocal<MinecraftCompressorAndLengthEncoder> compressionEncoder;
+  private int compressionThreshold;
+  private int compressionLevel;
 
   static {
     try {
@@ -87,15 +93,30 @@ public class PreparedPacketFactory {
                                int compressionLevel, int compressionThreshold) {
     this.constructor = constructor;
     this.stateRegistry = stateRegistry;
+    this.compressionEncoder = Collections.synchronizedMap(new HashMap<>());
     this.updateCompressor(enableCompression, compressionLevel, compressionThreshold);
   }
 
   public void updateCompressor(boolean enableCompression, int compressionLevel, int compressionThreshold) {
     this.enableCompression = enableCompression;
+    this.compressionLevel = compressionLevel;
+    this.compressionThreshold = compressionThreshold;
+  }
 
+  public void releaseThread(Thread thread) {
+    if (this.compressionEncoder.containsKey(thread)) {
+      try {
+        this.compressionEncoder.remove(thread).handlerRemoved(DUMMY_CONTEXT);
+      } catch (Exception e) {
+        e.printStackTrace();
+      }
+    }
+  }
+
+  private MinecraftCompressorAndLengthEncoder getThreadLocalCompressionEncoder() {
     // We're creating different compressors for different threads here to allow multithreading
-    this.compressionEncoder = ThreadLocal.withInitial(() ->
-        new MinecraftCompressorAndLengthEncoder(compressionThreshold, Natives.compress.get().create(compressionLevel)));
+    return this.compressionEncoder.computeIfAbsent(Thread.currentThread(), (key) ->
+        new MinecraftCompressorAndLengthEncoder(this.compressionThreshold, Natives.compress.get().create(this.compressionLevel)));
   }
 
   public PreparedPacket createPreparedPacket(ProtocolVersion minVersion, ProtocolVersion maxVersion) {
@@ -112,8 +133,8 @@ public class PreparedPacketFactory {
 
     try {
       if (enableCompression) {
-        networkPacket = (ByteBuf) ALLOCATE_COMPRESSED.invoke(this.compressionEncoder.get(), DUMMY_CONTEXT, packetData, false);
-        HANDLE_COMPRESSED.invoke(this.compressionEncoder.get(), DUMMY_CONTEXT, packetData, networkPacket);
+        networkPacket = (ByteBuf) ALLOCATE_COMPRESSED.invoke(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, false);
+        HANDLE_COMPRESSED.invoke(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, networkPacket);
       } else {
         networkPacket = (ByteBuf) ALLOCATE_VARINT.invoke(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, false);
         HANDLE_VARINT.invoke(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, networkPacket);
