@@ -149,10 +149,20 @@ public class PreparedPacket {
 
   public PreparedPacket build() {
     ByteBuf[] packets = this.packets;
+
+    ByteBuf prevBuf = null;
     for (int i = 0, packetsLength = packets.length; i < packetsLength; i++) {
       ByteBuf buf = packets[i];
       if (buf != null) {
-        packets[i] = buf.capacity(buf.readableBytes());
+        if (buf == prevBuf) {
+          packets[i] = prevBuf;
+        } else if (buf.equals(prevBuf)) {
+          buf.release();
+          packets[i] = prevBuf;
+        } else {
+          packets[i] = buf.capacity(buf.readableBytes());
+          prevBuf = buf;
+        }
       }
     }
 
