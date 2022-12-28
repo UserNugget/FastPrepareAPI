@@ -61,6 +61,7 @@ public class PreparedPacketFactory {
   private boolean enableCompression;
   private int compressionThreshold;
   private int compressionLevel;
+  private boolean saveUncompressed;
 
   static {
     try {
@@ -89,17 +90,18 @@ public class PreparedPacketFactory {
   }
 
   public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
-                               int compressionLevel, int compressionThreshold) {
+                               int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
     this.constructor = constructor;
     this.stateRegistry = stateRegistry;
     this.compressionEncoder = Collections.synchronizedMap(new HashMap<>());
-    this.updateCompressor(enableCompression, compressionLevel, compressionThreshold);
+    this.updateCompressor(enableCompression, compressionLevel, compressionThreshold, saveUncompressed);
   }
 
-  public void updateCompressor(boolean enableCompression, int compressionLevel, int compressionThreshold) {
+  public void updateCompressor(boolean enableCompression, int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
     this.enableCompression = enableCompression;
     this.compressionLevel = compressionLevel;
     this.compressionThreshold = compressionThreshold;
+    this.saveUncompressed = saveUncompressed && enableCompression;
   }
 
   public void releaseThread(Thread thread) {
@@ -148,9 +150,13 @@ public class PreparedPacketFactory {
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version) {
+    return this.encodeSingle(packet, version, this.enableCompression);
+  }
+
+  public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression) {
     ByteBuf packetData;
 
-    if (this.enableCompression) {
+    if (enableCompression) {
       packetData = DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR ? Unpooled.directBuffer() : Unpooled.buffer();
     } else {
       // Ignoring Cipher there.
@@ -160,7 +166,7 @@ public class PreparedPacketFactory {
 
     this.encodeId(packet, packetData, version);
 
-    return this.compress(packetData, version.compareTo(ProtocolVersion.MINECRAFT_1_8) >= 0 && this.enableCompression);
+    return this.compress(packetData, version.compareTo(ProtocolVersion.MINECRAFT_1_8) >= 0 && enableCompression);
   }
 
   public void inject(Player player, MinecraftConnection connection, ChannelPipeline pipeline) {
@@ -168,10 +174,19 @@ public class PreparedPacketFactory {
     pipeline.addAfter(PREPARED_ENCODER, SINGLE_ENCODER, new SinglePacketEncoder(this, connection.getProtocolVersion()));
   }
 
+  public void setShouldSendUncompressed(ChannelPipeline pipeline, boolean shouldSendUncompressed) {
+    PreparedPacketEncoder encoder = (PreparedPacketEncoder) pipeline.get(PREPARED_ENCODER);
+    encoder.setShouldSendUncompressed(shouldSendUncompressed);
+  }
+
   public void deject(ChannelPipeline pipeline) {
     if (pipeline.names().contains(PREPARED_ENCODER)) {
       pipeline.remove(PreparedPacketEncoder.class);
       pipeline.remove(SinglePacketEncoder.class);
     }
+  }
+
+  public boolean shouldSaveUncompressed() {
+    return this.saveUncompressed;
   }
 }

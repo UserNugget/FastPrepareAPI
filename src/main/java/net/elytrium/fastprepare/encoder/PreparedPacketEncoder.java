@@ -29,6 +29,7 @@ public class PreparedPacketEncoder extends MessageToMessageEncoder<PreparedPacke
 
   private final ProtocolVersion protocolVersion;
   private final Function<ByteBuf, ByteBuf> duplicateFunction;
+  private boolean shouldSendUncompressed;
 
   public PreparedPacketEncoder(ProtocolVersion protocolVersion, boolean shouldCopy) {
     this.protocolVersion = protocolVersion;
@@ -42,6 +43,14 @@ public class PreparedPacketEncoder extends MessageToMessageEncoder<PreparedPacke
 
   @Override
   protected void encode(ChannelHandlerContext ctx, PreparedPacket msg, List<Object> out) {
-    out.add(this.duplicateFunction.apply(msg.getPackets(this.protocolVersion)));
+    if (this.shouldSendUncompressed) {
+      out.add(this.duplicateFunction.apply(msg.getUncompressedPackets(this.protocolVersion)));
+    } else {
+      out.add(this.duplicateFunction.apply(msg.getPackets(this.protocolVersion)));
+    }
+  }
+
+  public void setShouldSendUncompressed(boolean shouldSendUncompressed) {
+    this.shouldSendUncompressed = shouldSendUncompressed;
   }
 }
