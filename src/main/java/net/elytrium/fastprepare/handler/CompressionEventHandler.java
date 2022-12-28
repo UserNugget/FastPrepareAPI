@@ -15,27 +15,32 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package net.elytrium.fastprepare.encoder;
+package net.elytrium.fastprepare.handler;
 
-import com.velocitypowered.api.network.ProtocolVersion;
-import com.velocitypowered.proxy.protocol.MinecraftPacket;
+import com.velocitypowered.proxy.protocol.VelocityConnectionEvent;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToMessageEncoder;
-import java.util.List;
+import io.netty.channel.ChannelInboundHandlerAdapter;
 import net.elytrium.fastprepare.PreparedPacketFactory;
 
-public class SinglePacketEncoder extends MessageToMessageEncoder<MinecraftPacket> {
+public class CompressionEventHandler extends ChannelInboundHandlerAdapter {
 
   private final PreparedPacketFactory factory;
-  private final ProtocolVersion protocolVersion;
 
-  public SinglePacketEncoder(PreparedPacketFactory factory, ProtocolVersion protocolVersion) {
+  public CompressionEventHandler(PreparedPacketFactory factory) {
     this.factory = factory;
-    this.protocolVersion = protocolVersion;
   }
 
   @Override
-  protected void encode(ChannelHandlerContext ctx, MinecraftPacket msg, List<Object> out) {
-    out.add(this.factory.encodeSingle(msg, this.protocolVersion));
+  public void userEventTriggered(ChannelHandlerContext ctx, Object event) {
+    if (event instanceof VelocityConnectionEvent) {
+      VelocityConnectionEvent velocityEvent = (VelocityConnectionEvent) event;
+      if (velocityEvent == VelocityConnectionEvent.COMPRESSION_ENABLED) {
+        this.factory.setShouldSendUncompressed(ctx.pipeline(), false);
+      } else if (velocityEvent == VelocityConnectionEvent.COMPRESSION_DISABLED) {
+        this.factory.setShouldSendUncompressed(ctx.pipeline(), true);
+      }
+    }
+
+    ctx.fireUserEventTriggered(event);
   }
 }

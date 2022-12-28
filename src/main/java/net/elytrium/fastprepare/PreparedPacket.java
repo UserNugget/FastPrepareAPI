@@ -33,6 +33,7 @@ public class PreparedPacket {
   private final ProtocolVersion minVersion;
   private final ProtocolVersion maxVersion;
   private final PreparedPacketFactory factory;
+  private ByteBuf[] uncompressedPackets;
   private boolean disposed;
 
   public PreparedPacket(ProtocolVersion minVersion, ProtocolVersion maxVersion, PreparedPacketFactory factory) {
@@ -130,7 +131,8 @@ public class PreparedPacket {
     for (ProtocolVersion protocolVersion : EnumSet.range(from, to)) {
       T minecraftPacket = packet.apply(protocolVersion);
       Preconditions.checkArgument(minecraftPacket instanceof MinecraftPacket);
-      ByteBuf buf = this.factory.encodeSingle((MinecraftPacket) minecraftPacket, protocolVersion);
+      MinecraftPacket castedMinecraftPacket = (MinecraftPacket) minecraftPacket;
+      ByteBuf buf = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion);
       int versionKey = protocolVersion.ordinal();
       if (this.packets[versionKey] == null) {
         this.packets[versionKey] = Unpooled.directBuffer();
@@ -138,6 +140,21 @@ public class PreparedPacket {
 
       this.packets[versionKey].writeBytes(buf);
       buf.release();
+
+      if (this.factory.shouldSaveUncompressed()) {
+        ByteBuf buf2 = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion, false);
+
+        if (this.uncompressedPackets == null) {
+          this.uncompressedPackets = new ByteBuf[ProtocolVersion.values().length];
+        }
+
+        if (this.uncompressedPackets[versionKey] == null) {
+          this.uncompressedPackets[versionKey] = Unpooled.directBuffer();
+        }
+
+        this.uncompressedPackets[versionKey].writeBytes(buf2);
+        buf2.release();
+      }
     }
 
     return this;
@@ -147,26 +164,37 @@ public class PreparedPacket {
     return this.packets[version.ordinal()];
   }
 
-  public PreparedPacket build() {
-    ByteBuf[] packets = this.packets;
+  public ByteBuf getUncompressedPackets(ProtocolVersion version) {
+    return this.uncompressedPackets[version.ordinal()];
+  }
 
+  public PreparedPacket build() {
+    if (this.uncompressedPackets == null) {
+      this.uncompressedPackets = this.packets;
+    }
+
+    this.buildPacketArray(this.packets);
+    this.buildPacketArray(this.uncompressedPackets);
+
+    return this;
+  }
+
+  private void buildPacketArray(ByteBuf[] packetArray) {
     ByteBuf prevBuf = null;
-    for (int i = 0, packetsLength = packets.length; i < packetsLength; i++) {
-      ByteBuf buf = packets[i];
+    for (int i = 0, packetsLength = packetArray.length; i < packetsLength; i++) {
+      ByteBuf buf = packetArray[i];
       if (buf != null) {
         if (buf == prevBuf) {
-          packets[i] = prevBuf;
+          packetArray[i] = prevBuf;
         } else if (buf.equals(prevBuf)) {
           buf.release();
-          packets[i] = prevBuf;
+          packetArray[i] = prevBuf;
         } else {
-          packets[i] = buf.capacity(buf.readableBytes());
+          packetArray[i] = buf.capacity(buf.readableBytes());
           prevBuf = buf;
         }
       }
     }
-
-    return this;
   }
 
   public void release() {
@@ -178,6 +206,14 @@ public class PreparedPacket {
     for (ByteBuf packet : this.packets) {
       if (packet != null) {
         packet.release();
+      }
+    }
+
+    if (this.uncompressedPackets != null && this.packets != this.uncompressedPackets) {
+      for (ByteBuf packet : this.uncompressedPackets) {
+        if (packet != null) {
+          packet.release();
+        }
       }
     }
   }
