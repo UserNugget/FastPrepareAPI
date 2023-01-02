@@ -205,14 +205,18 @@ public class PreparedPacket {
     this.disposed = true;
     for (ByteBuf packet : this.packets) {
       if (packet != null) {
-        packet.release();
+        if (packet.refCnt() != 0) {
+          packet.release();
+        }
       }
     }
 
     if (this.uncompressedPackets != null && this.packets != this.uncompressedPackets) {
       for (ByteBuf packet : this.uncompressedPackets) {
         if (packet != null) {
-          packet.release();
+          if (packet.refCnt() != 0) {
+            packet.release();
+          }
         }
       }
     }
