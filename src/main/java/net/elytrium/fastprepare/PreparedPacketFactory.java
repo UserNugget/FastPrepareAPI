@@ -19,6 +19,7 @@ package net.elytrium.fastprepare;
 
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.natives.NativeSetupException;
 import com.velocitypowered.natives.compression.VelocityCompressor;
 import com.velocitypowered.natives.util.BufferPreference;
 import com.velocitypowered.natives.util.Natives;
@@ -34,14 +35,16 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import net.elytrium.fastprepare.dummy.DummyChannelHandlerContext;
 import net.elytrium.fastprepare.handler.CompressionEventHandler;
 import net.elytrium.fastprepare.handler.PreparedPacketEncoder;
+import net.elytrium.java.commons.reflection.ReflectionException;
 
 @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE")
 public class PreparedPacketFactory {
@@ -49,11 +52,13 @@ public class PreparedPacketFactory {
   public static final String PREPARED_ENCODER = "fastprepare-encoder";
   public static final String COMPRESSION_HANDLER = "fastprepare-compression-handler";
   private static final ChannelHandlerContext DUMMY_CONTEXT = new DummyChannelHandlerContext();
-  private static Method HANDLE_COMPRESSED;
-  private static Method ALLOCATE_COMPRESSED;
-  private static Method HANDLE_VARINT;
-  private static Method ALLOCATE_VARINT;
-  private static boolean DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR;
+  private static final MethodHandle HANDLE_COMPRESSED;
+  private static final MethodHandle ALLOCATE_COMPRESSED;
+  private static final MethodHandle HANDLE_VARINT;
+  private static final MethodHandle ALLOCATE_VARINT;
+  private static final MethodHandle CLIENTBOUND_FIELD;
+  private static final MethodHandle GET_PROTOCOL_REGISTRY;
+  private static final boolean DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR;
 
   private final PreparedPacketConstructor constructor;
   private final StateRegistry stateRegistry;
@@ -65,27 +70,31 @@ public class PreparedPacketFactory {
 
   static {
     try {
-      HANDLE_COMPRESSED = MinecraftCompressorAndLengthEncoder.class
-          .getDeclaredMethod("encode", ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class);
-      HANDLE_COMPRESSED.setAccessible(true);
-      ALLOCATE_COMPRESSED = MinecraftCompressorAndLengthEncoder.class
-          .getDeclaredMethod("allocateBuffer", ChannelHandlerContext.class, ByteBuf.class, boolean.class);
-      ALLOCATE_COMPRESSED.setAccessible(true);
-
-      HANDLE_VARINT = MinecraftVarintLengthEncoder.class
-          .getDeclaredMethod("encode", ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class);
-      HANDLE_VARINT.setAccessible(true);
-      ALLOCATE_VARINT = MinecraftVarintLengthEncoder.class
-          .getDeclaredMethod("allocateBuffer", ChannelHandlerContext.class, ByteBuf.class, boolean.class);
-      ALLOCATE_VARINT.setAccessible(true);
+      HANDLE_COMPRESSED = MethodHandles.privateLookupIn(MinecraftCompressorAndLengthEncoder.class, MethodHandles.lookup())
+          .findVirtual(MinecraftCompressorAndLengthEncoder.class, "encode",
+              MethodType.methodType(void.class, ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class));
+      ALLOCATE_COMPRESSED = MethodHandles.privateLookupIn(MinecraftCompressorAndLengthEncoder.class, MethodHandles.lookup())
+          .findVirtual(MinecraftCompressorAndLengthEncoder.class, "allocateBuffer",
+              MethodType.methodType(ByteBuf.class, ChannelHandlerContext.class, ByteBuf.class, boolean.class));
+      HANDLE_VARINT = MethodHandles.privateLookupIn(MinecraftVarintLengthEncoder.class, MethodHandles.lookup())
+          .findVirtual(MinecraftVarintLengthEncoder.class, "encode",
+              MethodType.methodType(void.class, ChannelHandlerContext.class, ByteBuf.class, ByteBuf.class));
+      ALLOCATE_VARINT = MethodHandles.privateLookupIn(MinecraftVarintLengthEncoder.class, MethodHandles.lookup())
+          .findVirtual(MinecraftVarintLengthEncoder.class, "allocateBuffer",
+              MethodType.methodType(ByteBuf.class, ChannelHandlerContext.class, ByteBuf.class, boolean.class));
+      CLIENTBOUND_FIELD = MethodHandles.privateLookupIn(StateRegistry.class, MethodHandles.lookup())
+          .findGetter(StateRegistry.class, "clientbound", StateRegistry.PacketRegistry.class);
+      GET_PROTOCOL_REGISTRY = MethodHandles.privateLookupIn(StateRegistry.PacketRegistry.class, MethodHandles.lookup())
+          .findVirtual(StateRegistry.PacketRegistry.class, "getProtocolRegistry",
+              MethodType.methodType(StateRegistry.PacketRegistry.ProtocolRegistry.class, ProtocolVersion.class));
 
       try (VelocityCompressor compressor = Natives.compress.get().create(1)) {
         BufferPreference bufferType = compressor.preferredBufferType();
         DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR = bufferType.equals(BufferPreference.DIRECT_PREFERRED)
             || bufferType.equals(BufferPreference.DIRECT_REQUIRED);
       }
-    } catch (NoSuchMethodException e) {
-      e.printStackTrace();
+    } catch (NoSuchMethodException | IllegalAccessException | NoSuchFieldException e) {
+      throw new ReflectionException(e);
     }
   }
 
@@ -109,7 +118,7 @@ public class PreparedPacketFactory {
       try {
         this.compressionEncoder.remove(thread).handlerRemoved(DUMMY_CONTEXT);
       } catch (Exception e) {
-        e.printStackTrace();
+        throw new NativeSetupException(e);
       }
     }
   }
@@ -125,8 +134,15 @@ public class PreparedPacketFactory {
   }
 
   public void encodeId(MinecraftPacket packet, ByteBuf out, ProtocolVersion version) {
-    ProtocolUtils.writeVarInt(out, ProtocolUtils.Direction.CLIENTBOUND.getProtocolRegistry(this.stateRegistry, version).getPacketId(packet));
-    packet.encode(out, ProtocolUtils.Direction.CLIENTBOUND, version);
+    try {
+      StateRegistry.PacketRegistry packetRegistry = (StateRegistry.PacketRegistry) CLIENTBOUND_FIELD.invokeExact(this.stateRegistry);
+      StateRegistry.PacketRegistry.ProtocolRegistry protocolRegistry
+          = (StateRegistry.PacketRegistry.ProtocolRegistry) GET_PROTOCOL_REGISTRY.invokeExact(packetRegistry, version);
+      ProtocolUtils.writeVarInt(out, protocolRegistry.getPacketId(packet));
+      packet.encode(out, ProtocolUtils.Direction.CLIENTBOUND, version);
+    } catch (Throwable e) {
+      throw new ReflectionException(e);
+    }
   }
 
   public ByteBuf compress(ByteBuf packetData, boolean enableCompression) {
@@ -134,15 +150,14 @@ public class PreparedPacketFactory {
 
     try {
       if (enableCompression) {
-        networkPacket = (ByteBuf) ALLOCATE_COMPRESSED.invoke(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, false);
-        HANDLE_COMPRESSED.invoke(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, networkPacket);
+        networkPacket = (ByteBuf) ALLOCATE_COMPRESSED.invokeExact(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, false);
+        HANDLE_COMPRESSED.invokeExact(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, networkPacket);
       } else {
-        networkPacket = (ByteBuf) ALLOCATE_VARINT.invoke(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, false);
-        HANDLE_VARINT.invoke(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, networkPacket);
+        networkPacket = (ByteBuf) ALLOCATE_VARINT.invokeExact(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, false);
+        HANDLE_VARINT.invokeExact(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, networkPacket);
       }
-    } catch (IllegalAccessException | InvocationTargetException e) {
-      e.printStackTrace();
-      return null;
+    } catch (Throwable e) {
+      throw new ReflectionException(e);
     }
 
     packetData.release();
@@ -170,7 +185,8 @@ public class PreparedPacketFactory {
   }
 
   public void inject(Player player, MinecraftConnection connection, ChannelPipeline pipeline) {
-    pipeline.addAfter(Connections.MINECRAFT_ENCODER, PREPARED_ENCODER, new PreparedPacketEncoder(this, connection.getProtocolVersion(), player.isOnlineMode()));
+    pipeline.addAfter(Connections.MINECRAFT_ENCODER, PREPARED_ENCODER,
+        new PreparedPacketEncoder(this, connection.getProtocolVersion(), player.isOnlineMode()));
     pipeline.addFirst(COMPRESSION_HANDLER, new CompressionEventHandler(this));
   }
 
