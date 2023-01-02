@@ -33,18 +33,20 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
   private final PreparedPacketFactory factory;
   private final ProtocolVersion protocolVersion;
   private final Function<ByteBuf, ByteBuf> duplicateFunction;
-  private boolean shouldSendUncompressed = true;
+  private boolean shouldSendUncompressed;
 
   public PreparedPacketEncoder(PreparedPacketFactory factory, ProtocolVersion protocolVersion, boolean shouldCopy) {
     this.factory = factory;
     this.protocolVersion = protocolVersion;
     this.duplicateFunction = shouldCopy ? ByteBuf::copy : ByteBuf::retainedDuplicate;
+    this.shouldSendUncompressed = this.factory.shouldSaveUncompressed();
   }
 
   public PreparedPacketEncoder(PreparedPacketFactory factory, ProtocolVersion protocolVersion, Function<ByteBuf, ByteBuf> duplicateFunction) {
     this.factory = factory;
     this.protocolVersion = protocolVersion;
     this.duplicateFunction = duplicateFunction;
+    this.shouldSendUncompressed = this.factory.shouldSaveUncompressed();
   }
 
   @Override
@@ -61,7 +63,11 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
         ctx.write(this.duplicateFunction.apply(preparedPacket.getPackets(this.protocolVersion)), promise);
       }
     } else if (msg instanceof MinecraftPacket) {
-      ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion), promise);
+      if (this.shouldSendUncompressed) {
+        ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion, false), promise);
+      } else {
+        ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion), promise);
+      }
     } else {
       ctx.write(msg, promise);
     }

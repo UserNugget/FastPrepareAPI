@@ -191,8 +191,7 @@ public class PreparedPacketFactory {
   }
 
   public void setShouldSendUncompressed(ChannelPipeline pipeline, boolean shouldSendUncompressed) {
-    PreparedPacketEncoder encoder = (PreparedPacketEncoder) pipeline.get(PREPARED_ENCODER);
-    encoder.setShouldSendUncompressed(shouldSendUncompressed);
+    pipeline.get(PreparedPacketEncoder.class).setShouldSendUncompressed(this.saveUncompressed && shouldSendUncompressed);
   }
 
   public void deject(ChannelPipeline pipeline) {
