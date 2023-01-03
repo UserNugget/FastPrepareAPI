@@ -57,11 +57,14 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
 
     if (msg instanceof PreparedPacket) {
       PreparedPacket preparedPacket = (PreparedPacket) msg;
-      if (this.shouldSendUncompressed) {
-        ctx.write(this.duplicateFunction.apply(preparedPacket.getUncompressedPackets(this.protocolVersion)), promise);
-      } else {
-        ctx.write(this.duplicateFunction.apply(preparedPacket.getPackets(this.protocolVersion)), promise);
+      ByteBuf cachedPacket = (this.shouldSendUncompressed)
+          ? preparedPacket.getUncompressedPackets(this.protocolVersion) : preparedPacket.getPackets(this.protocolVersion);
+
+      if (cachedPacket == null) {
+        throw new IllegalStateException("Current PreparedPacket is not prepared for " + this.protocolVersion);
       }
+
+      ctx.write(this.duplicateFunction.apply(cachedPacket), promise);
     } else if (msg instanceof MinecraftPacket) {
       if (this.shouldSendUncompressed) {
         ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion, false), promise);
