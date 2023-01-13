@@ -10,7 +10,7 @@ plugins {
 }
 
 setGroup("net.elytrium")
-setVersion("1.0.4")
+setVersion("1.0.5")
 
 java {
     setSourceCompatibility(JavaVersion.VERSION_11)
@@ -35,16 +35,16 @@ repositories {
 }
 
 dependencies {
-    api("net.elytrium:elytrium-java-commons:1.0.5")
-    compileOnly("com.velocitypowered:velocity-api:3.2.0-SNAPSHOT")
-    compileOnly("com.velocitypowered:velocity-proxy:3.2.0-SNAPSHOT")
-    compileOnly("com.velocitypowered:velocity-native:3.2.0-SNAPSHOT")
-    compileOnly('com.github.spotbugs:spotbugs-annotations:4.7.3')
+    api("net.elytrium.commons:utils:$elytriumCommonsVersion")
+    compileOnly("com.velocitypowered:velocity-api:$velocityVersion")
+    compileOnly("com.velocitypowered:velocity-proxy:$velocityVersion")
+    compileOnly("com.velocitypowered:velocity-native:$velocityVersion")
+    compileOnly("com.github.spotbugs:spotbugs-annotations:$spotbugsVersion")
     // Needs for some velocity methods.
-    compileOnly('io.netty:netty-codec:4.1.86.Final')
-    compileOnly("io.netty:netty-handler:4.1.86.Final")
-    compileOnly("io.netty:netty-transport-native-epoll:4.1.86.Final")
-    compileOnly('it.unimi.dsi:fastutil-core:8.5.11')
+    compileOnly("io.netty:netty-codec:$nettyVersion")
+    compileOnly("io.netty:netty-handler:$nettyVersion")
+    compileOnly("io.netty:netty-transport-native-epoll:$nettyVersion")
+    compileOnly("it.unimi.dsi:fastutil-core:$fastutilVersion")
 }
 
 license {

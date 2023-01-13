@@ -41,10 +41,10 @@ import java.lang.invoke.MethodType;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import net.elytrium.commons.utils.reflection.ReflectionException;
 import net.elytrium.fastprepare.dummy.DummyChannelHandlerContext;
 import net.elytrium.fastprepare.handler.CompressionEventHandler;
 import net.elytrium.fastprepare.handler.PreparedPacketEncoder;
-import net.elytrium.java.commons.reflection.ReflectionException;
 
 @SuppressFBWarnings("RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE")
 public class PreparedPacketFactory {
