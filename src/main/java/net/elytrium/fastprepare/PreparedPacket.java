@@ -21,7 +21,6 @@ import com.google.common.base.Preconditions;
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.proxy.protocol.MinecraftPacket;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -135,7 +134,7 @@ public class PreparedPacket {
       ByteBuf buf = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion);
       int versionKey = protocolVersion.ordinal();
       if (this.packets[versionKey] == null) {
-        this.packets[versionKey] = Unpooled.directBuffer();
+        this.packets[versionKey] = this.factory.getPreparedPacketAllocator().directBuffer();
       }
 
       this.packets[versionKey].writeBytes(buf);
@@ -149,7 +148,7 @@ public class PreparedPacket {
         }
 
         if (this.uncompressedPackets[versionKey] == null) {
-          this.uncompressedPackets[versionKey] = Unpooled.directBuffer();
+          this.uncompressedPackets[versionKey] = this.factory.getPreparedPacketAllocator().directBuffer();
         }
 
         this.uncompressedPackets[versionKey].writeBytes(buf2);

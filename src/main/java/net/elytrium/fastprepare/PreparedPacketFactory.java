@@ -32,7 +32,8 @@ import com.velocitypowered.proxy.protocol.netty.MinecraftCompressorAndLengthEnco
 import com.velocitypowered.proxy.protocol.netty.MinecraftVarintLengthEncoder;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import java.lang.invoke.MethodHandle;
@@ -51,7 +52,6 @@ public class PreparedPacketFactory {
 
   public static final String PREPARED_ENCODER = "fastprepare-encoder";
   public static final String COMPRESSION_HANDLER = "fastprepare-compression-handler";
-  private static final ChannelHandlerContext DUMMY_CONTEXT = new DummyChannelHandlerContext();
   private static final MethodHandle HANDLE_COMPRESSED;
   private static final MethodHandle ALLOCATE_COMPRESSED;
   private static final MethodHandle HANDLE_VARINT;
@@ -63,6 +63,8 @@ public class PreparedPacketFactory {
   private final PreparedPacketConstructor constructor;
   private final StateRegistry stateRegistry;
   private final Map<Thread, MinecraftCompressorAndLengthEncoder> compressionEncoder;
+  private final ByteBufAllocator preparedPacketAllocator;
+  private final ChannelHandlerContext dummyContext;
   private boolean enableCompression;
   private int compressionThreshold;
   private int compressionLevel;
@@ -100,10 +102,17 @@ public class PreparedPacketFactory {
 
   public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
                                int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
+    this(constructor, stateRegistry, enableCompression, compressionLevel, compressionThreshold, saveUncompressed, new PooledByteBufAllocator());
+  }
+
+  public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
+                               int compressionLevel, int compressionThreshold, boolean saveUncompressed, ByteBufAllocator preparedPacketAllocator) {
     this.constructor = constructor;
     this.stateRegistry = stateRegistry;
     this.compressionEncoder = Collections.synchronizedMap(new HashMap<>());
     this.updateCompressor(enableCompression, compressionLevel, compressionThreshold, saveUncompressed);
+    this.preparedPacketAllocator = preparedPacketAllocator;
+    this.dummyContext = new DummyChannelHandlerContext(preparedPacketAllocator);
   }
 
   public void updateCompressor(boolean enableCompression, int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
@@ -116,7 +125,7 @@ public class PreparedPacketFactory {
   public void releaseThread(Thread thread) {
     if (this.compressionEncoder.containsKey(thread)) {
       try {
-        this.compressionEncoder.remove(thread).handlerRemoved(DUMMY_CONTEXT);
+        this.compressionEncoder.remove(thread).handlerRemoved(this.dummyContext);
       } catch (Exception e) {
         throw new NativeSetupException(e);
       }
@@ -150,11 +159,11 @@ public class PreparedPacketFactory {
 
     try {
       if (enableCompression) {
-        networkPacket = (ByteBuf) ALLOCATE_COMPRESSED.invokeExact(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, false);
-        HANDLE_COMPRESSED.invokeExact(this.getThreadLocalCompressionEncoder(), DUMMY_CONTEXT, packetData, networkPacket);
+        networkPacket = (ByteBuf) ALLOCATE_COMPRESSED.invokeExact(this.getThreadLocalCompressionEncoder(), this.dummyContext, packetData, false);
+        HANDLE_COMPRESSED.invokeExact(this.getThreadLocalCompressionEncoder(), this.dummyContext, packetData, networkPacket);
       } else {
-        networkPacket = (ByteBuf) ALLOCATE_VARINT.invokeExact(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, false);
-        HANDLE_VARINT.invokeExact(MinecraftVarintLengthEncoder.INSTANCE, DUMMY_CONTEXT, packetData, networkPacket);
+        networkPacket = (ByteBuf) ALLOCATE_VARINT.invokeExact(MinecraftVarintLengthEncoder.INSTANCE, this.dummyContext, packetData, false);
+        HANDLE_VARINT.invokeExact(MinecraftVarintLengthEncoder.INSTANCE, this.dummyContext, packetData, networkPacket);
       }
     } catch (Throwable e) {
       throw new ReflectionException(e);
@@ -168,15 +177,23 @@ public class PreparedPacketFactory {
     return this.encodeSingle(packet, version, this.enableCompression);
   }
 
+  public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, ByteBufAllocator alloc) {
+    return this.encodeSingle(packet, version, this.enableCompression, alloc);
+  }
+
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression) {
+    return this.encodeSingle(packet, version, enableCompression, this.preparedPacketAllocator);
+  }
+
+  public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression, ByteBufAllocator alloc) {
     ByteBuf packetData;
 
     if (enableCompression) {
-      packetData = DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR ? Unpooled.directBuffer() : Unpooled.buffer();
+      packetData = DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR ? alloc.directBuffer() : alloc.buffer();
     } else {
       // Ignoring Cipher there.
       // Network I/O always works better with direct buffers
-      packetData = Unpooled.directBuffer();
+      packetData = alloc.directBuffer();
     }
 
     this.encodeId(packet, packetData, version);
@@ -203,5 +220,9 @@ public class PreparedPacketFactory {
 
   public boolean shouldSaveUncompressed() {
     return this.saveUncompressed;
+  }
+
+  public ByteBufAllocator getPreparedPacketAllocator() {
+    return this.preparedPacketAllocator;
   }
 }

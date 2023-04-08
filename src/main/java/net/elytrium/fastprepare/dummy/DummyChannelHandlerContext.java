@@ -18,7 +18,6 @@
 package net.elytrium.fastprepare.dummy;
 
 import io.netty.buffer.ByteBufAllocator;
-import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandler;
@@ -32,6 +31,12 @@ import io.netty.util.concurrent.EventExecutor;
 import java.net.SocketAddress;
 
 public class DummyChannelHandlerContext implements ChannelHandlerContext {
+  private final ByteBufAllocator alloc;
+
+  public DummyChannelHandlerContext(ByteBufAllocator alloc) {
+    this.alloc = alloc;
+  }
+
   @Override
   public Channel channel() {
     return null;
@@ -224,7 +229,7 @@ public class DummyChannelHandlerContext implements ChannelHandlerContext {
 
   @Override
   public ByteBufAllocator alloc() {
-    return UnpooledByteBufAllocator.DEFAULT;
+    return this.alloc;
   }
 
   @Override
