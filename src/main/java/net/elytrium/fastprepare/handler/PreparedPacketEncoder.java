@@ -67,7 +67,7 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
       ctx.write(this.duplicateFunction.apply(cachedPacket), promise);
     } else if (msg instanceof MinecraftPacket) {
       if (this.shouldSendUncompressed) {
-        ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion,false, ctx.alloc()), promise);
+        ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion, false, ctx.alloc()), promise);
       } else {
         ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion, ctx.alloc()), promise);
       }

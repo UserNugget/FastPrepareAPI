@@ -36,12 +36,16 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
+import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import net.elytrium.commons.utils.reflection.ReflectionException;
 import net.elytrium.fastprepare.dummy.DummyChannelHandlerContext;
 import net.elytrium.fastprepare.handler.CompressionEventHandler;
@@ -58,10 +62,11 @@ public class PreparedPacketFactory {
   private static final MethodHandle ALLOCATE_VARINT;
   private static final MethodHandle CLIENTBOUND_FIELD;
   private static final MethodHandle GET_PROTOCOL_REGISTRY;
+  private static final MethodHandle PACKET_CLASS_TO_ID;
   private static final boolean DIRECT_BYTEBUF_PREFERRED_FOR_COMPRESSOR;
 
+  private final Set<StateRegistry> stateRegistries = new HashSet<>();
   private final PreparedPacketConstructor constructor;
-  private final StateRegistry stateRegistry;
   private final Map<Thread, MinecraftCompressorAndLengthEncoder> compressionEncoder;
   private final ByteBufAllocator preparedPacketAllocator;
   private final ChannelHandlerContext dummyContext;
@@ -89,6 +94,8 @@ public class PreparedPacketFactory {
       GET_PROTOCOL_REGISTRY = MethodHandles.privateLookupIn(StateRegistry.PacketRegistry.class, MethodHandles.lookup())
           .findVirtual(StateRegistry.PacketRegistry.class, "getProtocolRegistry",
               MethodType.methodType(StateRegistry.PacketRegistry.ProtocolRegistry.class, ProtocolVersion.class));
+      PACKET_CLASS_TO_ID = MethodHandles.privateLookupIn(StateRegistry.PacketRegistry.ProtocolRegistry.class, MethodHandles.lookup())
+          .findGetter(StateRegistry.PacketRegistry.ProtocolRegistry.class, "packetClassToId", Object2IntMap.class);
 
       try (VelocityCompressor compressor = Natives.compress.get().create(1)) {
         BufferPreference bufferType = compressor.preferredBufferType();
@@ -100,6 +107,11 @@ public class PreparedPacketFactory {
     }
   }
 
+  public PreparedPacketFactory(PreparedPacketConstructor constructor, Collection<StateRegistry> stateRegistries, boolean enableCompression,
+                               int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
+    this(constructor, stateRegistries, enableCompression, compressionLevel, compressionThreshold, saveUncompressed, new PooledByteBufAllocator());
+  }
+
   public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
                                int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
     this(constructor, stateRegistry, enableCompression, compressionLevel, compressionThreshold, saveUncompressed, new PooledByteBufAllocator());
@@ -107,8 +119,14 @@ public class PreparedPacketFactory {
 
   public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
                                int compressionLevel, int compressionThreshold, boolean saveUncompressed, ByteBufAllocator preparedPacketAllocator) {
+    this(constructor, Collections.singleton(stateRegistry), enableCompression,
+        compressionLevel, compressionThreshold, saveUncompressed, preparedPacketAllocator);
+  }
+
+  public PreparedPacketFactory(PreparedPacketConstructor constructor, Collection<StateRegistry> stateRegistries, boolean enableCompression,
+                               int compressionLevel, int compressionThreshold, boolean saveUncompressed, ByteBufAllocator preparedPacketAllocator) {
     this.constructor = constructor;
-    this.stateRegistry = stateRegistry;
+    this.stateRegistries.addAll(stateRegistries);
     this.compressionEncoder = Collections.synchronizedMap(new HashMap<>());
     this.updateCompressor(enableCompression, compressionLevel, compressionThreshold, saveUncompressed);
     this.preparedPacketAllocator = preparedPacketAllocator;
@@ -142,12 +160,28 @@ public class PreparedPacketFactory {
     return this.constructor.construct(minVersion, maxVersion, this);
   }
 
+  @SuppressWarnings("unchecked")
   public void encodeId(MinecraftPacket packet, ByteBuf out, ProtocolVersion version) {
     try {
-      StateRegistry.PacketRegistry packetRegistry = (StateRegistry.PacketRegistry) CLIENTBOUND_FIELD.invokeExact(this.stateRegistry);
-      StateRegistry.PacketRegistry.ProtocolRegistry protocolRegistry
-          = (StateRegistry.PacketRegistry.ProtocolRegistry) GET_PROTOCOL_REGISTRY.invokeExact(packetRegistry, version);
-      ProtocolUtils.writeVarInt(out, protocolRegistry.getPacketId(packet));
+      int packetId = Integer.MIN_VALUE;
+      for (StateRegistry stateRegistry : this.stateRegistries) {
+        StateRegistry.PacketRegistry packetRegistry = (StateRegistry.PacketRegistry) CLIENTBOUND_FIELD.invokeExact(stateRegistry);
+        StateRegistry.PacketRegistry.ProtocolRegistry protocolRegistry
+            = (StateRegistry.PacketRegistry.ProtocolRegistry) GET_PROTOCOL_REGISTRY.invokeExact(packetRegistry, version);
+        Object2IntMap<Class<? extends MinecraftPacket>> classToId
+            = (Object2IntMap<Class<? extends MinecraftPacket>>) PACKET_CLASS_TO_ID.invokeExact(protocolRegistry);
+        packetId = classToId.getInt(packet.getClass());
+        if (packetId != Integer.MIN_VALUE) {
+          break;
+        }
+      }
+
+      if (packetId == Integer.MIN_VALUE) {
+        throw new IllegalArgumentException(String.format(
+            "Unable to find id for packet of type %s in clientbound protocol %s.", packet.getClass().getName(), version));
+      }
+
+      ProtocolUtils.writeVarInt(out, packetId);
       packet.encode(out, ProtocolUtils.Direction.CLIENTBOUND, version);
     } catch (Throwable e) {
       throw new ReflectionException(e);
@@ -224,5 +258,13 @@ public class PreparedPacketFactory {
 
   public ByteBufAllocator getPreparedPacketAllocator() {
     return this.preparedPacketAllocator;
+  }
+
+  public void addStateRegistries(Collection<StateRegistry> stateRegistries) {
+    this.stateRegistries.addAll(stateRegistries);
+  }
+
+  public void addStateRegistry(StateRegistry stateRegistry) {
+    this.stateRegistries.add(stateRegistry);
   }
 }
