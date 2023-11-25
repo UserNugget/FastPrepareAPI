@@ -21,6 +21,7 @@ import com.google.common.base.Preconditions;
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.proxy.protocol.MinecraftPacket;
 import io.netty.buffer.ByteBuf;
+import io.netty.util.ReferenceCountUtil;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -46,7 +47,7 @@ public class PreparedPacket {
       return this;
     }
 
-    return this.prepare((version) -> packet, ProtocolVersion.MINIMUM_VERSION, ProtocolVersion.MAXIMUM_VERSION);
+    return this.prepare(packet, ProtocolVersion.MINIMUM_VERSION, ProtocolVersion.MAXIMUM_VERSION);
   }
 
   public <T> PreparedPacket prepare(T[] packets) {
@@ -59,18 +60,14 @@ public class PreparedPacket {
     }
 
     for (T packet : packets) {
-      this.prepare((version) -> packet, ProtocolVersion.MINIMUM_VERSION, ProtocolVersion.MAXIMUM_VERSION);
+      this.prepare(packet, ProtocolVersion.MINIMUM_VERSION, ProtocolVersion.MAXIMUM_VERSION);
     }
 
     return this;
   }
 
   public <T> PreparedPacket prepare(T packet, ProtocolVersion from) {
-    if (packet == null) {
-      return this;
-    }
-
-    return this.prepare((version) -> packet, from, ProtocolVersion.MAXIMUM_VERSION);
+    return this.prepare(packet, from, ProtocolVersion.MAXIMUM_VERSION);
   }
 
   public <T> PreparedPacket prepare(T packet, ProtocolVersion from, ProtocolVersion to) {
@@ -78,7 +75,11 @@ public class PreparedPacket {
       return this;
     }
 
-    return this.prepare((version) -> packet, from, to);
+    try {
+      return this.prepare((version) -> ReferenceCountUtil.retain(packet), from, ProtocolVersion.MAXIMUM_VERSION);
+    } finally {
+      ReferenceCountUtil.release(packet);
+    }
   }
 
   public <T> PreparedPacket prepare(T[] packets, ProtocolVersion from) {
@@ -129,30 +130,34 @@ public class PreparedPacket {
     }
     for (ProtocolVersion protocolVersion : EnumSet.range(from, to)) {
       T minecraftPacket = packet.apply(protocolVersion);
-      Preconditions.checkArgument(minecraftPacket instanceof MinecraftPacket);
-      MinecraftPacket castedMinecraftPacket = (MinecraftPacket) minecraftPacket;
-      ByteBuf buf = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion);
-      int versionKey = protocolVersion.ordinal();
-      if (this.packets[versionKey] == null) {
-        this.packets[versionKey] = this.factory.getPreparedPacketAllocator().directBuffer();
-      }
-
-      this.packets[versionKey].writeBytes(buf);
-      buf.release();
-
-      if (this.factory.shouldSaveUncompressed()) {
-        ByteBuf buf2 = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion, false);
-
-        if (this.uncompressedPackets == null) {
-          this.uncompressedPackets = new ByteBuf[ProtocolVersion.values().length];
+      try {
+        Preconditions.checkArgument(minecraftPacket instanceof MinecraftPacket);
+        MinecraftPacket castedMinecraftPacket = (MinecraftPacket) minecraftPacket;
+        ByteBuf buf = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion);
+        int versionKey = protocolVersion.ordinal();
+        if (this.packets[versionKey] == null) {
+          this.packets[versionKey] = this.factory.getPreparedPacketAllocator().directBuffer();
         }
 
-        if (this.uncompressedPackets[versionKey] == null) {
-          this.uncompressedPackets[versionKey] = this.factory.getPreparedPacketAllocator().directBuffer();
-        }
+        this.packets[versionKey].writeBytes(buf);
+        buf.release();
 
-        this.uncompressedPackets[versionKey].writeBytes(buf2);
-        buf2.release();
+        if (this.factory.shouldSaveUncompressed()) {
+          ByteBuf buf2 = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion, false);
+
+          if (this.uncompressedPackets == null) {
+            this.uncompressedPackets = new ByteBuf[ProtocolVersion.values().length];
+          }
+
+          if (this.uncompressedPackets[versionKey] == null) {
+            this.uncompressedPackets[versionKey] = this.factory.getPreparedPacketAllocator().directBuffer();
+          }
+
+          this.uncompressedPackets[versionKey].writeBytes(buf2);
+          buf2.release();
+        }
+      } finally {
+        ReferenceCountUtil.release(minecraftPacket);
       }
     }
 
