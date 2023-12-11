@@ -32,8 +32,7 @@ public class CompressionEventHandler extends ChannelInboundHandlerAdapter {
 
   @Override
   public void userEventTriggered(ChannelHandlerContext ctx, Object event) {
-    if (event instanceof VelocityConnectionEvent) {
-      VelocityConnectionEvent velocityEvent = (VelocityConnectionEvent) event;
+    if (event instanceof VelocityConnectionEvent velocityEvent) {
       if (velocityEvent == VelocityConnectionEvent.COMPRESSION_ENABLED) {
         this.factory.setShouldSendUncompressed(ctx.pipeline(), false);
       } else if (velocityEvent == VelocityConnectionEvent.COMPRESSION_DISABLED) {

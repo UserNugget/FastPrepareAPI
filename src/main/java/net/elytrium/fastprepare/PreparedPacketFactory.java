@@ -36,6 +36,7 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
+import io.netty.util.ReferenceCounted;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
@@ -68,6 +69,7 @@ public class PreparedPacketFactory {
   private final Set<StateRegistry> stateRegistries = new HashSet<>();
   private final PreparedPacketConstructor constructor;
   private final Map<Thread, MinecraftCompressorAndLengthEncoder> compressionEncoder;
+  private final boolean releaseReferenceCounted;
   private final ByteBufAllocator preparedPacketAllocator;
   private final ChannelHandlerContext dummyContext;
   private boolean enableCompression;
@@ -107,28 +109,27 @@ public class PreparedPacketFactory {
     }
   }
 
-  public PreparedPacketFactory(PreparedPacketConstructor constructor, Collection<StateRegistry> stateRegistries, boolean enableCompression,
-                               int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
-    this(constructor, stateRegistries, enableCompression, compressionLevel, compressionThreshold, saveUncompressed, new PooledByteBufAllocator());
+  public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
+                               int compressionLevel, int compressionThreshold, boolean saveUncompressed, boolean releaseReferenceCounted) {
+    this(constructor, stateRegistry, enableCompression, compressionLevel, compressionThreshold, saveUncompressed, releaseReferenceCounted,
+        new PooledByteBufAllocator());
   }
 
   public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
-                               int compressionLevel, int compressionThreshold, boolean saveUncompressed) {
-    this(constructor, stateRegistry, enableCompression, compressionLevel, compressionThreshold, saveUncompressed, new PooledByteBufAllocator());
-  }
-
-  public PreparedPacketFactory(PreparedPacketConstructor constructor, StateRegistry stateRegistry, boolean enableCompression,
-                               int compressionLevel, int compressionThreshold, boolean saveUncompressed, ByteBufAllocator preparedPacketAllocator) {
-    this(constructor, Collections.singleton(stateRegistry), enableCompression,
-        compressionLevel, compressionThreshold, saveUncompressed, preparedPacketAllocator);
+                               int compressionLevel, int compressionThreshold, boolean saveUncompressed, boolean releaseReferenceCounted,
+                               ByteBufAllocator preparedPacketAllocator) {
+    this(constructor, Collections.singleton(stateRegistry), enableCompression, compressionLevel, compressionThreshold, saveUncompressed,
+        releaseReferenceCounted, preparedPacketAllocator);
   }
 
   public PreparedPacketFactory(PreparedPacketConstructor constructor, Collection<StateRegistry> stateRegistries, boolean enableCompression,
-                               int compressionLevel, int compressionThreshold, boolean saveUncompressed, ByteBufAllocator preparedPacketAllocator) {
+                               int compressionLevel, int compressionThreshold, boolean saveUncompressed, boolean releaseReferenceCounted,
+                               ByteBufAllocator preparedPacketAllocator) {
     this.constructor = constructor;
     this.stateRegistries.addAll(stateRegistries);
     this.compressionEncoder = Collections.synchronizedMap(new HashMap<>());
     this.updateCompressor(enableCompression, compressionLevel, compressionThreshold, saveUncompressed);
+    this.releaseReferenceCounted = releaseReferenceCounted;
     this.preparedPacketAllocator = preparedPacketAllocator;
     this.dummyContext = new DummyChannelHandlerContext(preparedPacketAllocator);
   }
@@ -212,14 +213,23 @@ public class PreparedPacketFactory {
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, ByteBufAllocator alloc) {
-    return this.encodeSingle(packet, version, this.enableCompression, alloc);
+    return this.encodeSingle(packet, version, this.enableCompression, this.releaseReferenceCounted, alloc);
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression) {
-    return this.encodeSingle(packet, version, enableCompression, this.preparedPacketAllocator);
+    return this.encodeSingle(packet, version, enableCompression, this.releaseReferenceCounted, this.preparedPacketAllocator);
+  }
+
+  public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression, boolean releaseReferenceCounted) {
+    return this.encodeSingle(packet, version, enableCompression, releaseReferenceCounted, this.preparedPacketAllocator);
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression, ByteBufAllocator alloc) {
+    return this.encodeSingle(packet, version, enableCompression, this.releaseReferenceCounted, this.preparedPacketAllocator);
+  }
+
+  public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression, boolean releaseReferenceCounted,
+                              ByteBufAllocator alloc) {
     ByteBuf packetData;
 
     if (enableCompression) {
@@ -231,6 +241,10 @@ public class PreparedPacketFactory {
     }
 
     this.encodeId(packet, packetData, version);
+
+    if (releaseReferenceCounted && packet instanceof ReferenceCounted referenceCounted) {
+      referenceCounted.release();
+    }
 
     return this.compress(packetData, version.compareTo(ProtocolVersion.MINECRAFT_1_8) >= 0 && enableCompression);
   }
@@ -252,8 +266,16 @@ public class PreparedPacketFactory {
     }
   }
 
+  public boolean isCompressionEnabled() {
+    return this.enableCompression;
+  }
+
   public boolean shouldSaveUncompressed() {
     return this.saveUncompressed;
+  }
+
+  public boolean shouldReleaseReferenceCounted() {
+    return this.releaseReferenceCounted;
   }
 
   public ByteBufAllocator getPreparedPacketAllocator() {

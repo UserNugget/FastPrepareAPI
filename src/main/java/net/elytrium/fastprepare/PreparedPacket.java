@@ -21,6 +21,7 @@ import com.google.common.base.Preconditions;
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.proxy.protocol.MinecraftPacket;
 import io.netty.buffer.ByteBuf;
+import io.netty.util.ReferenceCounted;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -131,7 +132,7 @@ public class PreparedPacket {
       T minecraftPacket = packet.apply(protocolVersion);
       Preconditions.checkArgument(minecraftPacket instanceof MinecraftPacket);
       MinecraftPacket castedMinecraftPacket = (MinecraftPacket) minecraftPacket;
-      ByteBuf buf = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion);
+      ByteBuf buf = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion, this.factory.isCompressionEnabled(), false);
       int versionKey = protocolVersion.ordinal();
       if (this.packets[versionKey] == null) {
         this.packets[versionKey] = this.factory.getPreparedPacketAllocator().directBuffer();
@@ -141,7 +142,7 @@ public class PreparedPacket {
       buf.release();
 
       if (this.factory.shouldSaveUncompressed()) {
-        ByteBuf buf2 = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion, false);
+        ByteBuf buf2 = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion, false, false);
 
         if (this.uncompressedPackets == null) {
           this.uncompressedPackets = new ByteBuf[ProtocolVersion.values().length];
@@ -153,6 +154,10 @@ public class PreparedPacket {
 
         this.uncompressedPackets[versionKey].writeBytes(buf2);
         buf2.release();
+      }
+
+      if (this.factory.shouldReleaseReferenceCounted() && castedMinecraftPacket instanceof ReferenceCounted referenceCounted) {
+        referenceCounted.release();
       }
     }
 

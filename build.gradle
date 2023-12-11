@@ -1,40 +1,42 @@
 //file:noinspection GroovyAssignabilityCheck
 
-plugins {
+plugins() {
     id("java-library")
+
     id("checkstyle")
-    id("maven-publish")
-    id("com.github.spotbugs").version("5.0.7")
+    id("com.github.spotbugs").version("5.0.14")
     id("org.cadixdev.licenser").version("0.6.1")
-    id("com.github.johnrengelman.shadow").version("7.1.2")
+
+    id("maven-publish")
 }
 
-setGroup("net.elytrium")
-setVersion("1.0.7")
+this.group = "net.elytrium"
+this.version = "1.0.8"
 
-java {
-    setSourceCompatibility(JavaVersion.VERSION_11)
-    setTargetCompatibility(JavaVersion.VERSION_11)
+compileJava() {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+    options.getRelease().set(11)
+
+    options.setEncoding("UTF-8")
 }
 
-compileJava {
-    getOptions().setEncoding("UTF-8")
-}
-
-repositories {
+repositories() {
     mavenCentral()
 
-    maven {
+    maven() {
         setName("elytrium-repo")
         setUrl("https://maven.elytrium.net/repo/")
     }
-    maven {
+    maven() {
         setName("papermc-repo")
         setUrl("https://papermc.io/repo/repository/maven-public/")
     }
 }
 
-dependencies {
+dependencies() {
+    annotationProcessor("net.java.dev.jna:jna-platform:5.13.0")
+    annotationProcessor("com.github.bsideup.jabel:jabel-javac-plugin:1.0.0")
     api("net.elytrium.commons:utils:$elytriumCommonsVersion")
     compileOnly("com.velocitypowered:velocity-api:$velocityVersion")
     compileOnly("com.velocitypowered:velocity-proxy:$velocityVersion")
@@ -47,83 +49,76 @@ dependencies {
     compileOnly("it.unimi.dsi:fastutil-core:$fastutilVersion")
 }
 
-license {
-    setHeader(file("HEADER.txt"))
+license() {
+    header = file("HEADER.txt")
 }
 
-checkstyle {
-    setToolVersion("10.1")
-    setConfigFile(file("${this.getRootDir()}/config/checkstyle/checkstyle.xml"))
-    setConfigProperties("configDirectory": "${this.getRootDir()}/config/checkstyle")
+checkstyle() {
+    toolVersion = "10.12.1"
 
-    // The build should immediately fail if we have errors.
-    setMaxErrors(0)
-    setMaxWarnings(0)
+    configFile = file("$rootDir/config/checkstyle/checkstyle.xml")
+    configProperties = ["configDirectory": "$rootDir/config/checkstyle"]
+    maxErrors = 0
+    maxWarnings = 0
 }
 
-spotbugsMain {
-    setExcludeFilter(file("${this.getRootDir()}/config/spotbugs/suppressions.xml"))
+spotbugsMain() {
+    excludeFilter = file("${this.getRootDir()}/config/spotbugs/suppressions.xml")
 
-    reports {
-        html {
-            getRequired().set(true)
-            getOutputLocation().set(file("${this.getBuildDir()}/reports/spotbugs/main/spotbugs.html"))
-            setStylesheet("fancy-hist.xsl")
-        }
+    reports.register("html") {
+        required = true
+        outputLocation.value(layout.buildDirectory.file("reports/spotbugs/main/spotbugs.html"))
+        stylesheet = "fancy-hist.xsl"
     }
 }
 
-task javadocJar(type: Jar) {
-    getArchiveClassifier().set("javadoc")
-    from(javadoc)
-}
-
-task sourcesJar(type: Jar) {
-    getArchiveClassifier().set("sources")
+tasks.register("sourcesJar", Jar) {
+    archiveClassifier = "sources"
     from(sourceSets.main.getAllSource())
 }
 
-publishing {
-    repositories {
-        maven {
-            credentials {
-                setUsername(System.getenv("PUBLISH_USERNAME"))
-                setPassword(System.getenv("PUBLISH_PASSWORD"))
+tasks.register("javadocJar", Jar) {
+    archiveClassifier = "javadoc"
+    from(javadoc)
+}
+
+publishing() {
+    repositories() {
+        maven() {
+            credentials() {
+                username = System.getenv("ELYTRIUM_MAVEN_USERNAME")
+                password = System.getenv("ELYTRIUM_MAVEN_PASSWORD")
             }
 
-            setName("elytrium-repo")
-            setUrl("https://maven.elytrium.net/repo/")
+            name = "elytrium-repo"
+            url = "https://maven.elytrium.net/repo/"
         }
     }
 
-    publications {
-        maven(MavenPublication) {
-            from(getComponents().java)
+    publications.create("publication", MavenPublication) {
+        from(components.java)
 
-            artifact(javadocJar)
-            artifact(sourcesJar)
-        }
+        artifact(javadocJar)
+        artifact(sourcesJar)
     }
 }
 
-javadoc {
-    getOptions().setEncoding("UTF-8")
-    getOptions().setCharSet("UTF-8")
-    getOptions().setSource("11")
-    getOptions().links("https://docs.oracle.com/en/java/javase/11/docs/api/")
-
-    // Remove "undefined" from search paths when generating javadoc for a non-modular project. (JDK-8215291)
-    if (JavaVersion.current() == JavaVersion.VERSION_11) {
-        getOptions().addBooleanOption("-no-module-directories", true)
+javadoc() {
+    options.setEncoding("UTF-8")
+    options.setSource("17")
+    options.links("https://docs.oracle.com/en/java/javase/17/docs/api/")
+    options.addStringOption("Xdoclint:none", "-quiet")
+    if (JavaVersion.current() >= JavaVersion.VERSION_1_9 && JavaVersion.current() < JavaVersion.VERSION_12) {
+        options.addBooleanOption("-no-module-directories", true)
     }
 }
 
-artifacts {
-    archives(javadocJar)
+artifacts() {
     archives(sourcesJar)
+    archives(javadocJar)
 }
 
-sourceSets.main.getJava().srcDir(getTasks().register("generateTemplates", Copy) { task ->
+sourceSets.main.java.srcDir(getTasks().register("generateTemplates", Copy) { task ->
     task.getInputs().properties("version": getVersion())
 
     task.from(file("src/main/templates"))

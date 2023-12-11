@@ -55,8 +55,7 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
       return;
     }
 
-    if (msg instanceof PreparedPacket) {
-      PreparedPacket preparedPacket = (PreparedPacket) msg;
+    if (msg instanceof PreparedPacket preparedPacket) {
       ByteBuf cachedPacket = (this.shouldSendUncompressed)
           ? preparedPacket.getUncompressedPackets(this.protocolVersion) : preparedPacket.getPackets(this.protocolVersion);
 
