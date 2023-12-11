@@ -21,6 +21,7 @@ import com.google.common.base.Preconditions;
 import com.velocitypowered.api.network.ProtocolVersion;
 import com.velocitypowered.proxy.protocol.MinecraftPacket;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufHolder;
 import io.netty.util.ReferenceCounted;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -142,6 +143,10 @@ public class PreparedPacket {
       buf.release();
 
       if (this.factory.shouldSaveUncompressed()) {
+        if (minecraftPacket instanceof ByteBufHolder byteBufHolder) {
+          byteBufHolder.content().resetReaderIndex();
+        }
+
         ByteBuf buf2 = this.factory.encodeSingle(castedMinecraftPacket, protocolVersion, false, false);
 
         if (this.uncompressedPackets == null) {
@@ -156,7 +161,7 @@ public class PreparedPacket {
         buf2.release();
       }
 
-      if (this.factory.shouldReleaseReferenceCounted() && castedMinecraftPacket instanceof ReferenceCounted referenceCounted) {
+      if (this.factory.shouldReleaseReferenceCounted() && minecraftPacket instanceof ReferenceCounted referenceCounted) {
         referenceCounted.release();
       }
     }

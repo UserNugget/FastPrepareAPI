@@ -225,7 +225,7 @@ public class PreparedPacketFactory {
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression, ByteBufAllocator alloc) {
-    return this.encodeSingle(packet, version, enableCompression, this.releaseReferenceCounted, this.preparedPacketAllocator);
+    return this.encodeSingle(packet, version, enableCompression, this.releaseReferenceCounted, alloc);
   }
 
   public ByteBuf encodeSingle(MinecraftPacket packet, ProtocolVersion version, boolean enableCompression, boolean releaseReferenceCounted,
