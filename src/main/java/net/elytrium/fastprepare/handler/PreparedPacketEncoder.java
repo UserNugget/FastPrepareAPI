@@ -30,23 +30,21 @@ import net.elytrium.fastprepare.dummy.DummyPacket;
 
 public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
 
-  private final PreparedPacketFactory factory;
   private final ProtocolVersion protocolVersion;
   private final Function<ByteBuf, ByteBuf> duplicateFunction;
-  private boolean shouldSendUncompressed;
+  private PreparedPacketFactory factory;
+  private boolean shouldSendUncompressed = true;
 
   public PreparedPacketEncoder(PreparedPacketFactory factory, ProtocolVersion protocolVersion, boolean shouldCopy) {
     this.factory = factory;
     this.protocolVersion = protocolVersion;
     this.duplicateFunction = shouldCopy ? ByteBuf::copy : ByteBuf::retainedDuplicate;
-    this.shouldSendUncompressed = this.factory.shouldSaveUncompressed();
   }
 
   public PreparedPacketEncoder(PreparedPacketFactory factory, ProtocolVersion protocolVersion, Function<ByteBuf, ByteBuf> duplicateFunction) {
     this.factory = factory;
     this.protocolVersion = protocolVersion;
     this.duplicateFunction = duplicateFunction;
-    this.shouldSendUncompressed = this.factory.shouldSaveUncompressed();
   }
 
   @Override
@@ -56,7 +54,7 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
     }
 
     if (msg instanceof PreparedPacket preparedPacket) {
-      ByteBuf cachedPacket = (this.shouldSendUncompressed)
+      ByteBuf cachedPacket = this.isSendUncompressed()
           ? preparedPacket.getUncompressedPackets(this.protocolVersion) : preparedPacket.getPackets(this.protocolVersion);
 
       if (cachedPacket == null) {
@@ -65,7 +63,7 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
 
       ctx.write(this.duplicateFunction.apply(cachedPacket), promise);
     } else if (msg instanceof MinecraftPacket) {
-      if (this.shouldSendUncompressed) {
+      if (this.isSendUncompressed()) {
         ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion, false, ctx.alloc()), promise);
       } else {
         ctx.write(this.factory.encodeSingle((MinecraftPacket) msg, this.protocolVersion, ctx.alloc()), promise);
@@ -73,6 +71,18 @@ public class PreparedPacketEncoder extends ChannelOutboundHandlerAdapter {
     } else {
       ctx.write(msg, promise);
     }
+  }
+
+  public boolean isSendUncompressed() {
+    return this.factory.shouldSaveUncompressed() && this.shouldSendUncompressed;
+  }
+
+  public PreparedPacketFactory getFactory() {
+    return this.factory;
+  }
+
+  public void setFactory(PreparedPacketFactory factory) {
+    this.factory = factory;
   }
 
   public void setShouldSendUncompressed(boolean shouldSendUncompressed) {

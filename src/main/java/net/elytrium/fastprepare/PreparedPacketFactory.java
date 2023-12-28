@@ -255,8 +255,12 @@ public class PreparedPacketFactory {
     pipeline.addFirst(COMPRESSION_HANDLER, new CompressionEventHandler(this));
   }
 
+  public void replace(ChannelPipeline pipeline) {
+    pipeline.get(PreparedPacketEncoder.class).setFactory(this);
+  }
+
   public void setShouldSendUncompressed(ChannelPipeline pipeline, boolean shouldSendUncompressed) {
-    pipeline.get(PreparedPacketEncoder.class).setShouldSendUncompressed(this.saveUncompressed && shouldSendUncompressed);
+    pipeline.get(PreparedPacketEncoder.class).setShouldSendUncompressed(shouldSendUncompressed);
   }
 
   public void deject(ChannelPipeline pipeline) {
